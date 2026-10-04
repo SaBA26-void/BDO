@@ -8,11 +8,11 @@ fastmcp = ">=0.1.0"
 mcp = ">=1.0.0"
 pypdf = ">=4.0.0"
 python-docx = ">=1.1.0"
-pandas = ">=2.0.0"
-openpyxl = ">=3.1.0"
 streamlit = ">=1.30.0"
 python-dotenv = ">=1.0.0"
 openai = ">=1.0.0"
+pandas = "*"
+openpyxl = "*"
 sqlalchemy = "*"
 
 [dev-packages]

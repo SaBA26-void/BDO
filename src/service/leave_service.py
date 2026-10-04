@@ -27,12 +27,11 @@ def create_leave_request(
         if not emp:
             raise ValueError(f"Employee ID '{employee_id}' not found.")
 
-        # Resolve leave type by ID, code, or Georgian name
+        # Resolve leave type by ID, code, or name
         lt = session.scalar(
             select(LeaveType).where(
-                (LeaveType.leave_type_id == leave_type_id) |
                 (LeaveType.code == leave_type_id) |
-                (LeaveType.name_ka.like(f"%{leave_type_id}%"))
+                (LeaveType.name.like(f"%{leave_type_id}%"))
             )
         )
         if not lt:
@@ -49,7 +48,7 @@ def create_leave_request(
         ent = session.scalar(
             select(LeaveEntitlement).where(
                 LeaveEntitlement.employee_id == employee_id,
-                LeaveEntitlement.leave_type_id == lt.leave_type_id,
+                LeaveEntitlement.leave_type == lt.code,
                 LeaveEntitlement.year == year
             )
         )
@@ -62,12 +61,11 @@ def create_leave_request(
                 f"Insufficient leave balance! Available: {ent.remaining_days} days, Requested: {requested_days} days."
             )
 
-        # Generate sequential request ID (e.g., REQ001, REQ002)
+        # Generate sequential request ID (integer)
         last_req = session.scalar(
             select(LeaveRequest).order_by(LeaveRequest.request_id.desc()).limit(1)
         )
-        req_num = int(last_req.request_id.replace('REQ', '')) + 1 if last_req else 1
-        req_id = f"REQ{req_num:03d}"
+        req_id = (last_req.request_id + 1) if last_req else 1
 
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -75,11 +73,13 @@ def create_leave_request(
         new_request = LeaveRequest(
             request_id=req_id,
             employee_id=employee_id,
-            leave_type_id=lt.leave_type_id,
+            leave_type=lt.code,
             start_date=start_date,
             end_date=end_date,
+            days=requested_days,
             requested_days=requested_days,
             status="PENDING",
+            comment=reason,
             reason=reason,
             created_at=now_str
         )
