@@ -1,4 +1,5 @@
-import os
+﻿import os
+import sys
 import pandas as pd
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
@@ -22,7 +23,7 @@ def seed_db_from_excel():
                 if 'probation_end_date' in df.columns:
                     df['probation_end_date'] = pd.to_datetime(df['probation_end_date']).dt.strftime('%Y-%m-%d')
                 df.to_sql(Employee.__tablename__, con=engine, if_exists="append", index=False)
-                print("Seeded table 'employees' from employees.xlsx.")
+                print("Seeded table 'employees' from employees.xlsx.", file=sys.stderr)
 
         # seed Leave Types
         lt_count = session.scalar(select(func.count()).select_from(LeaveType))
@@ -31,7 +32,7 @@ def seed_db_from_excel():
             if os.path.exists(filepath):
                 df = pd.read_excel(filepath)
                 df.to_sql(LeaveType.__tablename__, con=engine, if_exists="append", index=False)
-                print("Seeded table 'leave_types' from leave_types.xlsx.")
+                print("Seeded table 'leave_types' from leave_types.xlsx.", file=sys.stderr)
 
         # seed Leave Requests
         req_count = session.scalar(select(func.count()).select_from(LeaveRequest))
@@ -50,7 +51,7 @@ def seed_db_from_excel():
             req_df['reason'] = req_df['comment']
             
             req_df.to_sql(LeaveRequest.__tablename__, con=engine, if_exists="append", index=False)
-            print("Seeded table 'leave_requests' from leave_requests.xlsx.")
+            print("Seeded table 'leave_requests' from leave_requests.xlsx.", file=sys.stderr)
         elif os.path.exists(filepath_req):
             req_df = pd.read_excel(filepath_req)
             if 'start_date' in req_df.columns:
@@ -103,7 +104,7 @@ def seed_db_from_excel():
                 df['remaining_days'] = remaining_days_list
 
                 df.to_sql(LeaveEntitlement.__tablename__, con=engine, if_exists="append", index=False)
-                print("Seeded table 'leave_entitlements' from leave_entitlements.xlsx.")
+                print("Seeded table 'leave_entitlements' from leave_entitlements.xlsx.", file=sys.stderr)
 
         # seed Public Holidays
         hol_count = session.scalar(select(func.count()).select_from(PublicHoliday))
@@ -115,7 +116,7 @@ def seed_db_from_excel():
                     df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
                 df['name_ka'] = df['name']
                 df.to_sql(PublicHoliday.__tablename__, con=engine, if_exists="append", index=False)
-                print("Seeded table 'public_holidays' from public_holidays.xlsx.")
+                print("Seeded table 'public_holidays' from public_holidays.xlsx.", file=sys.stderr)
 
 
 if __name__ == "__main__":

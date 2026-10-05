@@ -8,9 +8,10 @@ from src.seed import seed_db_from_excel
 from mcp_server.app import mcp
 import mcp_server.tools
 
+# stdout carries the stdio MCP protocol, so diagnostics go to stderr.
 if __name__ == "__main__":
-    print("Initializing Database...")
+    print("Initializing Database...", file=sys.stderr)
     seed_db_from_excel()
 
-    print("🚀 Northstar Leave Management MCP Server starting...")
-    mcp.run()
+    print("Northstar Leave Management MCP Server starting...", file=sys.stderr)
+    mcp.run(show_banner=False)

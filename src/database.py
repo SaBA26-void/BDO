@@ -1,4 +1,5 @@
 import os
+import sys
 from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import create_engine, String, Integer, Float, Boolean, ForeignKey, event
@@ -122,7 +123,7 @@ DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "leav
 
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
-engine = create_engine(f"sqlite:///{DB_PATH}", echo=True)
+engine = create_engine(f"sqlite:///{DB_PATH}")
 
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
@@ -135,7 +136,7 @@ SessionLocal = sessionmaker(bind=engine)
 
 def create_db_tables():
     Base.metadata.create_all(engine)
-    print("Database tables created successfully!")
+    print("Database tables created successfully!", file=sys.stderr)
 
 
 if __name__ == "__main__":

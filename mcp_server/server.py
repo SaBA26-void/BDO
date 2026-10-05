@@ -1,3 +1,5 @@
+import sys
+
 from mcp_server.app import mcp
 from mcp_server.tools import (
     create_leave_request,
@@ -9,5 +11,5 @@ from mcp_server.tools import (
 )
 
 if __name__ == "__main__":
-    print("🚀 Northstar Leave Management MCP Server starting...")
-    mcp.run()
+    print("Northstar Leave Management MCP Server starting...", file=sys.stderr)
+    mcp.run(show_banner=False)
