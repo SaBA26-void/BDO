@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+from datetime import datetime
 from typing import Optional
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -10,6 +11,8 @@ from src.service.employee_service import get_employee as db_get_employee
 from src.service.leave_type_service import get_leave_types as db_get_leave_types
 from src.service.leave_balance_service import get_leave_balance as db_get_leave_balance
 from src.service.leave_service import (
+    ASSISTANT_CHANNEL,
+    LeavePolicyError,
     create_leave_request as db_create_leave_request,
     list_leave_requests as db_list_leave_requests,
     approve_or_reject_leave_request as db_approve_or_reject_leave_request,
@@ -23,18 +26,27 @@ def create_leave_request(
     leave_type: str,
     start_date: str,
     end_date: str,
-    reason: str = ""
+    reason: str = "",
+    dry_run: bool = False
 ) -> str:
-    """Create a new leave request for an employee."""
+    """Create a PENDING ANNUAL, SICK or UNPAID request for the employee, subject to Article 12 of the
+    leave policy. Dates are YYYY-MM-DD. With dry_run=true, run every check and return the day count
+    without creating the request."""
     try:
         result = db_create_leave_request(
             employee_id=employee_id,
             leave_type_id=leave_type,
             start_date=start_date,
             end_date=end_date,
-            reason=reason
+            reason=reason,
+            created_via=ASSISTANT_CHANNEL,
+            dry_run=dry_run
         )
         return json.dumps(result, ensure_ascii=False, indent=2)
+    except LeavePolicyError as e:
+        return json.dumps(
+            {"success": False, "error": str(e), "article": e.article}, ensure_ascii=False, indent=2
+        )
     except Exception as e:
         return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False, indent=2)
 
@@ -62,11 +74,12 @@ def list_leave_requests(
 @mcp.tool()
 def get_leave_balance(
     employee_id: str,
-    year: int = 2026,
+    year: Optional[int] = None,
     leave_type: Optional[str] = None
 ) -> str:
-    """View remaining leave balance for an employee."""
+    """View remaining leave balance for an employee (exact employee ID). Year defaults to the current year."""
     try:
+        year = year or datetime.now().year
         emp = db_get_employee(employee_id)
         if not emp:
             return json.dumps({"success": False, "error": f"Employee '{employee_id}' not found."}, ensure_ascii=False, indent=2)
