@@ -40,15 +40,16 @@ NOT_FOUND_ANSWER = (
     "გთხოვთ, მიმართოთ HR დეპარტამენტს."
 )
 
-# Document Priority Weights (Higher version / specific policy overrides older handbooks)
+# Current policies outrank the FAQ, which defers to them; Remote v2.0 replaces the FAQ's and
+# handbook Article 6's remote-work rules. The handbook is the oldest source.
 DOCUMENT_PRIORITIES = {
     "Leave_and_Absence_Policy_v4.0.docx": 100,
-    "Employee_FAQ_2025.docx": 90,
-    "Remote_and_Hybrid_Work_Policy_v2.0.pdf": 80,
-    "Information_Security_Policy_v3.2.pdf": 80,
-    "Learning_and_Development_Policy_v1.2.pdf": 80,
-    "Travel_and_Expense_Policy_v2.3.pdf": 80,
-    "Employee_Handbook_v3.1.docx": 10  # Outdated handbook provisions
+    "Remote_and_Hybrid_Work_Policy_v2.0.pdf": 90,
+    "Information_Security_Policy_v3.2.pdf": 90,
+    "Learning_and_Development_Policy_v1.2.pdf": 90,
+    "Travel_and_Expense_Policy_v2.3.pdf": 90,
+    "Employee_FAQ_2025.docx": 40,
+    "Employee_Handbook_v3.1.docx": 10,
 }
 DEFAULT_PRIORITY = 50
 
@@ -58,7 +59,8 @@ SYSTEM_PROMPT = (
     "კონტექსტის ფრაგმენტები დალაგებულია პრიორიტეტის მიხედვით. პასუხი დააფუძნე ყველაზე მაღალი "
     "პრიორიტეტის წყაროს, რომელიც კითხვას პასუხობს; დაბალი პრიორიტეტის წყარო გამოიყენე მხოლოდ მაშინ, "
     "თუ მაღალი პრიორიტეტის წყაროებში ეს ინფორმაცია არ არის. წინააღმდეგობის შემთხვევაში ყოველთვის "
-    "მაღალი პრიორიტეტის წყაროა სწორი (მაგ. Leave_and_Absence_Policy_v4.0 overrides Employee_Handbook_v3.1).\n"
+    "მაღალი პრიორიტეტის წყაროა სწორი (მაგ. Leave_and_Absence_Policy_v4.0 overrides Employee_Handbook_v3.1; "
+    "Remote_and_Hybrid_Work_Policy_v2.0 overrides Employee_FAQ_2025 and Employee_Handbook_v3.1).\n"
     "პასუხი იყოს ზუსტი და სრული: მოიყვანე კონკრეტული რიცხვები და პირობები.\n"
     f"თუ პასუხი კონტექსტში არ არის, უპასუხე ზუსტად ასე: {NOT_FOUND_ANSWER}\n"
     "პასუხის ბოლოს აუცილებლად მიუთითე გამოყენებული წყარო ფორმატით: [წყარო: ფაილის_სახელი]."
