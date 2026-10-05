@@ -47,6 +47,7 @@ def seed_db_from_excel():
             if 'created_at' in req_df.columns:
                 req_df['created_at'] = pd.to_datetime(req_df['created_at']).dt.strftime('%Y-%m-%d %H:%M:%S')
             
+            req_df['status'] = req_df['status'].str.upper()
             req_df['requested_days'] = req_df['days']
             req_df['reason'] = req_df['comment']
             
