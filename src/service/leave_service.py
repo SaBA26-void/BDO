@@ -300,16 +300,16 @@ def list_leave_requests(
     end_date: Optional[str] = None,
     session: Optional[Session] = None
 ) -> List[Dict[str, Any]]:
-    """List leave requests filtered by employee, status, or date range."""
-    query = select(LeaveRequest)
+    """List leave requests filtered by employee, status, or a date range the leave overlaps."""
+    query = select(LeaveRequest).order_by(LeaveRequest.start_date, LeaveRequest.request_id)
     if employee_id:
-        query = query.where(LeaveRequest.employee_id == employee_id)
+        query = query.where(LeaveRequest.employee_id == employee_id.strip().upper())
     if status:
         query = query.where(func.upper(LeaveRequest.status) == status.upper())
     if start_date:
-        query = query.where(LeaveRequest.start_date >= start_date)
+        query = query.where(LeaveRequest.end_date >= start_date)
     if end_date:
-        query = query.where(LeaveRequest.end_date <= end_date)
+        query = query.where(LeaveRequest.start_date <= end_date)
 
     requests = session.scalars(query).all()
     return [
@@ -321,6 +321,8 @@ def list_leave_requests(
             "end_date": req.end_date,
             "days": req.days,
             "status": req.status.upper(),
+            "created_at": req.created_at,
+            "created_via": req.created_via,
             "reason": req.reason or req.comment
         }
         for req in requests
