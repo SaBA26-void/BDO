@@ -351,6 +351,8 @@ def approve_or_reject_leave_request(
 
     if req.status.upper() != "PENDING":
         raise ValueError(f"Request '{request_id}' is already {req.status.upper()}.")
+    if reviewer_id and req.employee_id == reviewer_id:
+        raise PermissionError("A reviewer cannot approve or reject their own leave request.")
 
     ent = _entitlement_for(session, req)
     if ent:
