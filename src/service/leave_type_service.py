@@ -13,6 +13,7 @@ def get_leave_types(session: Optional[Session] = None) -> List[Dict[str, Any]]:
         {
             "code": lt.code,
             "name": lt.name,
+            "day_unit": lt.day_unit,
             "annual_limit_days": lt.annual_limit_days,
             "self_service": lt.self_service
         }

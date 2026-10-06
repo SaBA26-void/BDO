@@ -1,38 +1,58 @@
 """
 Georgian AI Assistant Agent (Northstar Services)
-Integrates Intent Classification, Entity Extraction, MCP Leave Tools, and Policy RAG.
+Routes Georgian messages for one logged-in employee to the policy RAG engine or to the
+leave MCP server. Scope follows Article 12 of the leave policy: policy questions, the
+employee's own balance, and new ANNUAL / SICK / UNPAID requests after explicit confirmation.
 """
 
-import re
+import asyncio
 import json
+import re
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, List
 
-from src.rag import PolicyRAGEngine
-from src.service.employee_service import get_employee
-from mcp_server.tools import (
-    create_leave_request,
-    get_leave_balance,
-    list_leave_requests,
-    cancel_leave_request,
-    list_leave_types,
-)
+from fastmcp import Client
 
-# Order matters: more specific types are checked before ANNUAL, whose keywords are generic.
+from src.rag import PolicyRAGEngine
+
+# Order matters: UNPAID wording contains the ANNUAL keyword "ანაზღაურებადი",
+# and ANNUAL keywords are generic, so specific types are checked first.
 LEAVE_TYPE_KEYWORDS = {
-    "UNPAID": ["უანაზღაურებელი", "ანაზღაურების გარეშე", "უხელფასო"],
+    "UNPAID": ["უანაზღაურებ", "არაანაზღაურებ", "ანაზღაურების გარეშე", "უხელფასო"],
     "SICK": ["ავადმყოფობ", "ბიულეტენ", "ექიმ", "ჯანმრთელობ", "ავად"],
     "STUDY": ["სასწავლო", "საგამოცდო", "გამოცდ", "უნივერსიტეტ", "ტრენინგ"],
     "BEREAVEMENT": ["გლოვ", "დაკრძალვ", "გარდაცვალ"],
+    "PARENTAL": ["მშობლის", "დედობ", "მამობ", "დეკრეტ", "ბავშვის მოვლ", "შვილად აყვან"],
     "ANNUAL": ["ანაზღაურებადი", "წლიური", "ყოველწლიური", "ჩვეულებრივი", "კუთვნილი", "დასვენებ"],
 }
 DEFAULT_LEAVE_TYPE = "ANNUAL"
+ASSISTANT_LEAVE_TYPES = {"ANNUAL", "SICK", "UNPAID"}
 
-CANCEL_KEYWORDS = ["გაუქმება", "გავაუქმო", "გააუქმე", "გაუქმდეს", "წაშალე", "წაშლა"]
-LIST_KEYWORDS = [
-    "ჩემი მოთხოვნები", "მოთხოვნების სია", "მოთხოვნების ისტორია", "ისტორია",
-    "სტატუსი", "ჩემი შვებულებები", "რა მოთხოვნები მაქვს",
-]
+# Article 12.2: explain the rule and redirect instead of creating the request.
+HR_ONLY_RULES = {
+    "BEREAVEMENT": (
+        "8",
+        "გლოვის შვებულება: ახლო ოჯახის წევრის გარდაცვალებისას არაუმეტეს 3 სამუშაო დღე, სხვა "
+        "ნათესავისთვის 1 სამუშაო დღე თითო შემთხვევაზე. გამოიყენება გარდაცვალებიდან 30 კალენდარული "
+        "დღის განმავლობაში; წინასწარი შეტყობინება საჭირო არ არის. მოთხოვნა წარადგინეთ HR პორტალით ან "
+        "ადამიანური რესურსების სამსახურის მეშვეობით, შვებულების პირველი დღიდან არაუგვიანეს 2 სამუშაო "
+        "დღისა, და მიუთითეთ ნათესაური კავშირი და გარდაცვალების თარიღი.",
+    ),
+    "STUDY": (
+        "9",
+        "სასწავლო და საგამოცდო შვებულება: წელიწადში არაუმეტეს 5 სამუშაო დღე იმ კვალიფიკაციის "
+        "გამოცდებისთვის, რომელიც თქვენს დამტკიცებულ სწავლის გეგმაშია — გამოცდის დღე და მის წინ "
+        "არაუმეტეს 1 დღე მოსამზადებლად. მოთხოვნა წარადგინეთ HR პორტალით ან HR-ის მეშვეობით სულ მცირე "
+        "10 სამუშაო დღით ადრე და მიუთითეთ გამოცდის დასახელება და თარიღი.",
+    ),
+    "PARENTAL": (
+        "10",
+        "მშობლის შვებულება (დედობის, ბავშვის მოვლის, მამობის, შვილად აყვანის) HR პორტალით ან "
+        "ასისტენტით არ წარდგება. მიმართეთ პირდაპირ ადამიანური რესურსების სამსახურს არაუგვიანეს 8 "
+        "კვირით ადრე სავარაუდო დაწყებამდე; HR განსაზღვრავს ხანგრძლივობას, ანაზღაურებასა და დოკუმენტებს.",
+    ),
+}
+
 BALANCE_KEYWORDS = [
     "ბალანს", "ნაშთ", "დამრჩა", "დამრჩენია", "მაქვს დარჩენილი", "დარჩენილი მაქვს",
 ]
@@ -42,23 +62,61 @@ CREATE_KEYWORDS = [
     "დამიფორმე", "გამიფორმე", "გაფორმება", "დაარეგისტრირე", "დარეგისტრირება",
     "შვებულების აღება", "შვებულებაში გასვლა", "გავალ შვებულებაში", "მჭირდება შვებულება",
 ]
+WANT_WORDS = ["მინდა", "მჭირდება"]
+
+CONFIRM_WORDS = {"კი", "დიახ"}
+DECLINE_WORDS = {"არა", "არ მინდა", "გაუქმება", "გააუქმე"}
 
 DATE_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}")
-REQUEST_ID_PATTERN = re.compile(r"(?:REQ|#|ID[:\s]*)?\s*(\d+)", re.IGNORECASE)
+EMPLOYEE_ALIAS_PATTERN = re.compile(r"EMP(\d{1,3})")
 
-STATUS_KA = {
-    "PENDING": "განხილვის პროცესში",
-    "APPROVED": "დამტკიცებული",
-    "REJECTED": "უარყოფილი",
-    "CANCELLED": "გაუქმებული",
-}
+DAY_UNIT_KA = {"calendar": "კალენდარული დღე", "working": "სამუშაო დღე"}
+LEAVE_POLICY_FILE = "Leave_and_Absence_Policy_v4.0.docx"
+
+
+def resolve_employee_alias(raw_id: str) -> str:
+    """Normalize a typed ID: 'e1001' -> 'E1001', fixed alias 'EMP001' -> 'E1001'."""
+    employee_id = raw_id.strip().upper()
+    match = EMPLOYEE_ALIAS_PATTERN.fullmatch(employee_id)
+    if match:
+        return f"E{1000 + int(match.group(1))}"
+    return employee_id
+
+
+def _normalize_answer(text: str) -> str:
+    return re.sub(r"[\s„“\"'.,!?]+", " ", text).strip().lower()
 
 
 class GeorgianAIAssistant:
-    def __init__(self, doc_dir: Optional[str] = None):
+    def __init__(
+        self,
+        client: Client,
+        employee_id: str,
+        employee_name: str,
+        leave_types: Dict[str, Dict[str, Any]],
+        doc_dir: Optional[str] = None,
+    ):
+        self.client = client
+        self.employee_id = employee_id
+        self.employee_name = employee_name
+        self.leave_types = leave_types
         self.doc_dir = doc_dir
         self._rag_engine: Optional[PolicyRAGEngine] = None
-        self.leave_type_names = self._load_leave_type_names()
+        self._draft: Optional[Dict[str, Any]] = None
+        self._awaiting_dates_for: Optional[str] = None
+
+    @classmethod
+    async def login(cls, client: Client, raw_id: str, doc_dir: Optional[str] = None) -> Optional["GeorgianAIAssistant"]:
+        """Resolve the typed ID to an existing employee via the MCP server; None if unknown."""
+        employee_id = resolve_employee_alias(raw_id)
+        if not employee_id:
+            return None
+        balance = await call_tool(client, "get_leave_balance", employee_id=employee_id)
+        if not balance.get("success"):
+            return None
+        types = await call_tool(client, "list_leave_types")
+        leave_types = {lt["code"]: lt for lt in types.get("leave_types", [])}
+        return cls(client, balance["employee_id"], balance["employee_name"], leave_types, doc_dir)
 
     @property
     def rag_engine(self) -> PolicyRAGEngine:
@@ -67,47 +125,39 @@ class GeorgianAIAssistant:
             self._rag_engine = PolicyRAGEngine(self.doc_dir)
         return self._rag_engine
 
-    @staticmethod
-    def _load_leave_type_names() -> Dict[str, str]:
-        data = json.loads(list_leave_types())
-        return {lt["code"]: lt["name"] for lt in data.get("leave_types", [])}
-
     def leave_type_name(self, code: str) -> str:
-        return self.leave_type_names.get(code, code)
+        return self.leave_types.get(code, {}).get("name", code)
+
+    def day_unit_label(self, code: str) -> str:
+        return DAY_UNIT_KA.get(self.leave_types.get(code, {}).get("day_unit"), "დღე")
 
     # ------------------------------------------------------------------ #
-    # Intent classification
+    # Intent classification and entity extraction
     # ------------------------------------------------------------------ #
-    def classify_intent(self, message: str) -> str:
-        """Classify user query into actionable HR intents."""
+    @staticmethod
+    def classify_intent(message: str) -> str:
+        """Classify a message as POLICY_QA, CHECK_BALANCE or CREATE_LEAVE_REQUEST."""
         msg = message.lower()
-
-        if any(w in msg for w in CANCEL_KEYWORDS):
-            return "CANCEL_LEAVE_REQUEST"
-
-        if any(w in msg for w in LIST_KEYWORDS):
-            return "LIST_LEAVE_REQUESTS"
 
         if any(w in msg for w in BALANCE_KEYWORDS):
             return "CHECK_BALANCE"
 
-        if any(w in msg for w in CREATE_KEYWORDS) or (
-            "შვებულ" in msg and len(DATE_PATTERN.findall(msg)) >= 1
+        if (
+            any(w in msg for w in CREATE_KEYWORDS)
+            or ("შვებულ" in msg and any(w in msg for w in WANT_WORDS))
+            or ("შვებულ" in msg and DATE_PATTERN.search(msg))
         ):
             return "CREATE_LEAVE_REQUEST"
 
         return "POLICY_QA"
 
-    # ------------------------------------------------------------------ #
-    # Entity extraction
-    # ------------------------------------------------------------------ #
-    def extract_leave_type(self, message: str) -> Tuple[str, str]:
-        """Extract leave type code and Georgian display name from text."""
+    @staticmethod
+    def extract_leave_type(message: str) -> Optional[str]:
         msg = message.lower()
         for code, keywords in LEAVE_TYPE_KEYWORDS.items():
             if any(kw in msg for kw in keywords):
-                return code, self.leave_type_name(code)
-        return DEFAULT_LEAVE_TYPE, self.leave_type_name(DEFAULT_LEAVE_TYPE)
+                return code
+        return None
 
     @staticmethod
     def extract_dates(message: str) -> Tuple[Optional[str], Optional[str]]:
@@ -127,142 +177,154 @@ class GeorgianAIAssistant:
         start, end = sorted(valid[:2])
         return start, end
 
-    @staticmethod
-    def extract_request_id(message: str) -> Optional[str]:
-        """Extract a leave request ID, ignoring digits that belong to dates."""
-        cleaned = DATE_PATTERN.sub(" ", message)
-        match = REQUEST_ID_PATTERN.search(cleaned)
-        return match.group(1) if match else None
-
     # ------------------------------------------------------------------ #
     # Intent handlers
     # ------------------------------------------------------------------ #
-    def _handle_balance(self, employee_id: str, emp_name: str) -> Tuple[str, Dict[str, Any]]:
+    async def _handle_policy(self, message: str) -> Tuple[str, Dict[str, Any]]:
+        try:
+            rag_res = await asyncio.to_thread(lambda: self.rag_engine.answer_question(message))
+        except Exception as e:
+            return f"❌ პოლიტიკის დოკუმენტებში ძებნა ვერ მოხერხდა: {e}", {"success": False, "error": str(e)}
+
+        answer = rag_res["answer"]
+        if rag_res["found"] and "წყარო" not in answer and rag_res["sources"]:
+            answer += f"\n\n[წყარო: {rag_res['sources'][0]['source_file']}]"
+        return answer, rag_res
+
+    async def _handle_balance(self) -> Tuple[str, Dict[str, Any]]:
         year = datetime.now().year
-        data = json.loads(get_leave_balance(employee_id=employee_id, year=year))
+        data = await call_tool(self.client, "get_leave_balance", employee_id=self.employee_id, year=year)
         if not data.get("success"):
             return f"❌ შეცდომა ბალანსის შემოწმებისას: {data.get('error')}", data
 
         balances = data.get("balances", [])
         if not balances:
-            return f"ℹ️ {emp_name}-ისთვის {year} წლის შვებულების ბალანსი ვერ მოიძებნა.", data
+            return f"ℹ️ {year} წლის შვებულების ბალანსი ვერ მოიძებნა ({self.employee_name}, {self.employee_id}).", data
 
-        lines = [f"📊 {emp_name}-ის შვებულების ბალანსი {year} წლისთვის:"]
+        lines = [f"📊 შვებულების ბალანსი {year} წლისთვის — {self.employee_name} ({self.employee_id}):"]
         for b in balances:
+            code = b["leave_type"]
+            total = f"{b['total_days']}"
+            if b.get("carried_over_days"):
+                total += f", მ.შ. გადმოტანილი {b['carried_over_days']}"
             lines.append(
-                f"• {self.leave_type_name(b['leave_type'])}: დარჩენილია {b['remaining_days']} დღე "
-                f"(სულ: {b['entitled_days']}, გამოყენებული: {b['used_days']}, "
-                f"განხილვაში: {b['pending_days']})"
+                f"• {self.leave_type_name(code)}: ხელმისაწვდომია {max(b['remaining_days'], 0)} "
+                f"{self.day_unit_label(code)} (კუთვნილი: {total}; დამტკიცებული: {b['used_days']}; "
+                f"განხილვის პროცესში: {b['pending_days']})"
             )
         return "\n".join(lines), data
 
-    def _handle_create(self, message: str, employee_id: str, emp_name: str) -> Tuple[str, Dict[str, Any]]:
-        lt_code, lt_name = self.extract_leave_type(message)
-        start_date, end_date = self.extract_dates(message)
+    async def _handle_create(self, message: str, fallback_type: Optional[str] = None) -> Tuple[str, Dict[str, Any]]:
+        lt_code = self.extract_leave_type(message) or fallback_type or DEFAULT_LEAVE_TYPE
+        lt_name = self.leave_type_name(lt_code)
 
-        if not start_date:
+        if lt_code not in ASSISTANT_LEAVE_TYPES:
+            article, rule = HR_ONLY_RULES[lt_code]
             reply = (
-                f"📅 {lt_name}-ის მოთხოვნის შესაქმნელად მიუთითეთ პერიოდი ფორმატით YYYY-MM-DD, "
-                f"მაგალითად: „მინდა ავიღო შვებულება 2026-06-01-დან 2026-06-05-მდე“."
+                f"ℹ️ ამ სახის მოთხოვნას („{lt_name}“) HR ასისტენტი არ ქმნის.\n\n{rule}\n\n"
+                f"📖 {LEAVE_POLICY_FILE}, მუხლი {article} (და მუხლი 12.3)."
+            )
+            return reply, {"success": False, "created": False, "leave_type": lt_code, "article": article}
+
+        start_date, end_date = self.extract_dates(message)
+        if not start_date:
+            self._awaiting_dates_for = lt_code
+            reply = (
+                f"📅 მოთხოვნისთვის („{lt_name}“) მიუთითეთ პერიოდი ფორმატით YYYY-MM-DD, "
+                f"მაგალითად: „2026-11-02-დან 2026-11-06-მდე“."
             )
             return reply, {"success": False, "error": "missing_dates", "leave_type": lt_code}
 
-        data = json.loads(create_leave_request(
-            employee_id=employee_id,
-            leave_type=lt_code,
-            start_date=start_date,
-            end_date=end_date,
-            reason=f"მოთხოვნილია AI ასისტენტის მეშვეობით: {message[:100]}",
-        ))
-
-        if not data.get("success"):
-            return f"❌ მოთხოვნის შექმნა ვერ მოხერხდა: {data.get('error')}", data
-
-        reply = (
-            f"✅ შვებულების მოთხოვნა წარმატებით დარეგისტრირდა!\n\n"
-            f"• თანამშრომელი: {emp_name}\n"
-            f"• მოთხოვნის ID: {data['request_id']}\n"
-            f"• შვებულების ტიპი: {lt_name}\n"
-            f"• პერიოდი: {start_date} -დან {end_date} -მდე ({data['requested_days']} სამუშაო დღე)\n"
-            f"• სტატუსი: {STATUS_KA.get(data['status'], data['status'])}\n"
-            f"• დარჩენილი ბალანსი: {data['remaining_days']} დღე"
+        preview = await call_tool(
+            self.client, "create_leave_request",
+            employee_id=self.employee_id, leave_type=lt_code,
+            start_date=start_date, end_date=end_date, dry_run=True,
         )
-        data.update({"leave_type": lt_code, "start_date": start_date, "end_date": end_date})
+        if not preview.get("success"):
+            return self._refusal(preview), preview
+
+        self._draft = preview
+        reply = (
+            "📝 გთხოვთ, გადაამოწმოთ მოთხოვნა:\n"
+            f"• თანამშრომელი: {self.employee_name} ({self.employee_id})\n"
+            f"• შვებულების სახე: {lt_name}\n"
+            f"• პერიოდი: {start_date} – {end_date}\n"
+            f"• დღეების რაოდენობა: {preview['requested_days']} {self.day_unit_label(lt_code)}\n"
+            f"• ბალანსი მოთხოვნის შემდეგ: {preview['remaining_days_after']}\n\n"
+            "შევქმნა მოთხოვნა? დასადასტურებლად დაწერეთ „კი“ ან „დიახ“, გასაუქმებლად – „არა“."
+        )
+        return reply, preview
+
+    async def _submit_draft(self, draft: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        data = await call_tool(
+            self.client, "create_leave_request",
+            employee_id=self.employee_id, leave_type=draft["leave_type"],
+            start_date=draft["start_date"], end_date=draft["end_date"],
+            reason="შექმნილია HR ასისტენტით, თანამშრომლის დადასტურებით",
+        )
+        if not data.get("success"):
+            return self._refusal(data), data
+
+        lt_code = data["leave_type"]
+        reply = (
+            "✅ მოთხოვნა შეიქმნა.\n"
+            f"• მოთხოვნის ID: {data['request_id']}\n"
+            f"• შვებულების სახე: {self.leave_type_name(lt_code)}\n"
+            f"• პერიოდი: {data['start_date']} – {data['end_date']} "
+            f"({data['requested_days']} {self.day_unit_label(lt_code)})\n"
+            "• სტატუსი: განხილვის პროცესში — ეს შვებულების დამტკიცებას არ ნიშნავს (მუხლი 12.2).\n"
+            f"• დარჩენილი ბალანსი: {data['remaining_days']}"
+        )
         return reply, data
 
-    def _handle_list(self, employee_id: str, emp_name: str) -> Tuple[str, Dict[str, Any]]:
-        data = json.loads(list_leave_requests(employee_id=employee_id))
-        if not data.get("success"):
-            return f"❌ მოთხოვნების ჩატვირთვა ვერ მოხერხდა: {data.get('error')}", data
-
-        reqs = data.get("requests", [])
-        if not reqs:
-            return f"ℹ️ {emp_name}-ისთვის შვებულების მოთხოვნები ვერ მოიძებნა.", data
-
-        lines = [f"📋 {emp_name}-ის შვებულების მოთხოვნები:"]
-        for r in reqs:
-            status = (r.get("status") or "").upper()
-            lines.append(
-                f"• ID: {r['request_id']} | {self.leave_type_name(r['leave_type'])} | "
-                f"{r['start_date']} - {r['end_date']} ({r['days']} დღე) | "
-                f"სტატუსი: {STATUS_KA.get(status, status)}"
-            )
-        return "\n".join(lines), data
-
-    def _handle_cancel(self, message: str, employee_id: str) -> Tuple[str, Dict[str, Any]]:
-        request_id = self.extract_request_id(message)
-        if not request_id:
-            reply = (
-                "🔎 გასაუქმებლად მიუთითეთ მოთხოვნის ID, მაგალითად: „გააუქმე მოთხოვნა 12“. "
-                "თქვენი მოთხოვნების სანახავად დაწერეთ „ჩემი მოთხოვნები“."
-            )
-            return reply, {"success": False, "error": "missing_request_id"}
-
-        data = json.loads(cancel_leave_request(request_id=request_id, employee_id=employee_id))
-        if not data.get("success"):
-            return f"❌ მოთხოვნის გაუქმება ვერ მოხერხდა: {data.get('error')}", data
-
-        return f"🗑️ მოთხოვნა ID {data['request_id']} წარმატებით გაუქმდა და ბალანსი აღდგა.", data
+    @staticmethod
+    def _refusal(data: Dict[str, Any]) -> str:
+        reply = f"❌ მოთხოვნა ვერ შეიქმნა: {data.get('error')}"
+        if data.get("article"):
+            reply += f"\n📖 {LEAVE_POLICY_FILE}, მუხლი {data['article']}."
+        return reply
 
     # ------------------------------------------------------------------ #
     # Router
     # ------------------------------------------------------------------ #
-    def process_message(self, message: str, employee_id: str = "E1001") -> Dict[str, Any]:
-        """Process user message, execute mapped intent, and return clean response."""
+    async def _route(self, message: str) -> Dict[str, Any]:
         intent = self.classify_intent(message)
 
-        if intent == "POLICY_QA":
-            rag_res = self.rag_engine.answer_question(message)
-            return {"intent": intent, "reply": rag_res["answer"], "data": rag_res}
-
-        emp = get_employee(employee_id)
-        if not emp:
-            return {
-                "intent": intent,
-                "reply": f"❌ თანამშრომელი '{employee_id}' ვერ მოიძებნა.",
-                "data": {"success": False, "error": "employee_not_found"},
-            }
-        # The DB tools expect the canonical ID (e.g. E1001), not aliases like EMP001.
-        employee_id = emp["employee_id"]
-        emp_name = emp["full_name"]
+        awaiting, self._awaiting_dates_for = self._awaiting_dates_for, None
+        if awaiting and intent != "CHECK_BALANCE" and DATE_PATTERN.search(message):
+            intent = "CREATE_LEAVE_REQUEST"
 
         if intent == "CHECK_BALANCE":
-            reply, data = self._handle_balance(employee_id, emp_name)
+            reply, data = await self._handle_balance()
         elif intent == "CREATE_LEAVE_REQUEST":
-            reply, data = self._handle_create(message, employee_id, emp_name)
-        elif intent == "LIST_LEAVE_REQUESTS":
-            reply, data = self._handle_list(employee_id, emp_name)
+            reply, data = await self._handle_create(message, fallback_type=awaiting)
         else:
-            reply, data = self._handle_cancel(message, employee_id)
-
+            reply, data = await self._handle_policy(message)
         return {"intent": intent, "reply": reply, "data": data}
 
+    async def process_message(self, message: str) -> Dict[str, Any]:
+        """Handle one message for the logged-in employee and return the reply."""
+        if self._draft is None:
+            return await self._route(message)
 
-if __name__ == "__main__":
-    import sys
+        draft, self._draft = self._draft, None
+        answer = _normalize_answer(message)
+        if answer in CONFIRM_WORDS:
+            reply, data = await self._submit_draft(draft)
+            return {"intent": "CONFIRM_LEAVE_REQUEST", "reply": reply, "data": data}
+        if answer in DECLINE_WORDS:
+            return {
+                "intent": "DECLINE_LEAVE_REQUEST",
+                "reply": "მოთხოვნა არ შეიქმნა.",
+                "data": {"success": False, "created": False},
+            }
 
-    sys.stdout.reconfigure(encoding="utf-8")
-    assistant = GeorgianAIAssistant()
-    text = " ".join(sys.argv[1:]) or "მაჩვენე ჩემი ბალანსი"
-    result = assistant.process_message(text)
-    print(f"[{result['intent']}]\n{result['reply']}")
+        result = await self._route(message)
+        result["reply"] = "ℹ️ წინა მოთხოვნა არ შეიქმნა, რადგან „კი“ არ დაწერეთ.\n\n" + result["reply"]
+        return result
+
+
+async def call_tool(client: Client, name: str, **arguments: Any) -> Dict[str, Any]:
+    """Call an MCP tool; the leave tools return a JSON string."""
+    result = await client.call_tool(name, arguments)
+    return json.loads(result.content[0].text)
