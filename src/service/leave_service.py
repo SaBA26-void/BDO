@@ -9,6 +9,8 @@ from src.service.session import with_session
 ASSISTANT_CHANNEL = "assistant"
 ASSISTANT_LEAVE_TYPES = {"ANNUAL", "SICK", "UNPAID"}
 ACTIVE_STATUSES = ("PENDING", "APPROVED")
+# No yearly entitlement: HR sets the duration case by case (Articles 8 and 10).
+UNTRACKED_LEAVE_TYPES = {"BEREAVEMENT", "PARENTAL"}
 
 HR_ONLY_LEAVE_TYPES = {
     "BEREAVEMENT": (
@@ -223,8 +225,9 @@ def create_leave_request(
             LeaveEntitlement.year == start.year
         )
     )
+    tracked = ent is not None or lt.code not in UNTRACKED_LEAVE_TYPES
     available = ent.remaining_days if ent else 0
-    if available < requested_days:
+    if tracked and available < requested_days:
         if lt.code == "SICK":
             raise LeavePolicyError(
                 f"ანაზღაურებადი ავადმყოფობის დღეებიდან დარჩენილია {available}, მოთხოვნილია {requested_days}. "
@@ -248,7 +251,7 @@ def create_leave_request(
             "end_date": end_date,
             "requested_days": requested_days,
             "day_unit": lt.day_unit,
-            "remaining_days_after": available - requested_days,
+            "remaining_days_after": available - requested_days if tracked else None,
         }
 
     last_req = session.scalar(
@@ -273,8 +276,9 @@ def create_leave_request(
     )
     session.add(new_request)
 
-    ent.pending_days += requested_days
-    ent.remaining_days -= requested_days
+    if ent:
+        ent.pending_days += requested_days
+        ent.remaining_days -= requested_days
 
     session.commit()
 
@@ -288,7 +292,7 @@ def create_leave_request(
         "day_unit": lt.day_unit,
         "status": "PENDING",
         "created_via": created_via,
-        "remaining_days": ent.remaining_days
+        "remaining_days": ent.remaining_days if ent else None
     }
 
 
