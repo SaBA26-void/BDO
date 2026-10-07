@@ -26,6 +26,7 @@ LEAVE_TYPE_KEYWORDS = {
     "ANNUAL": ["ანაზღაურებადი", "წლიური", "ყოველწლიური", "ჩვეულებრივი", "კუთვნილი", "დასვენებ"],
 }
 DEFAULT_LEAVE_TYPE = "ANNUAL"
+CALLER_ROLE = "employee"
 ASSISTANT_LEAVE_TYPES = {"ANNUAL", "SICK", "UNPAID"}
 
 # Article 12.2: explain the rule and redirect instead of creating the request.
@@ -111,12 +112,21 @@ class GeorgianAIAssistant:
         employee_id = resolve_employee_alias(raw_id)
         if not employee_id:
             return None
-        balance = await call_tool(client, "get_leave_balance", employee_id=employee_id)
+        balance = await call_tool(
+            client, "get_leave_balance",
+            caller_id=employee_id, caller_role=CALLER_ROLE, employee_id=employee_id,
+        )
         if not balance.get("success"):
             return None
         types = await call_tool(client, "list_leave_types")
         leave_types = {lt["code"]: lt for lt in types.get("leave_types", [])}
         return cls(client, balance["employee_id"], balance["employee_name"], leave_types, doc_dir)
+
+    async def _call(self, name: str, **arguments: Any) -> Dict[str, Any]:
+        """Call a leave tool as the logged-in employee; the server enforces the employee role."""
+        return await call_tool(
+            self.client, name, caller_id=self.employee_id, caller_role=CALLER_ROLE, **arguments
+        )
 
     @property
     def rag_engine(self) -> PolicyRAGEngine:
@@ -193,7 +203,7 @@ class GeorgianAIAssistant:
 
     async def _handle_balance(self) -> Tuple[str, Dict[str, Any]]:
         year = datetime.now().year
-        data = await call_tool(self.client, "get_leave_balance", employee_id=self.employee_id, year=year)
+        data = await self._call("get_leave_balance", employee_id=self.employee_id, year=year)
         if not data.get("success"):
             return f"❌ შეცდომა ბალანსის შემოწმებისას: {data.get('error')}", data
 
@@ -235,8 +245,8 @@ class GeorgianAIAssistant:
             )
             return reply, {"success": False, "error": "missing_dates", "leave_type": lt_code}
 
-        preview = await call_tool(
-            self.client, "create_leave_request",
+        preview = await self._call(
+            "create_leave_request",
             employee_id=self.employee_id, leave_type=lt_code,
             start_date=start_date, end_date=end_date, dry_run=True,
         )
@@ -256,8 +266,8 @@ class GeorgianAIAssistant:
         return reply, preview
 
     async def _submit_draft(self, draft: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
-        data = await call_tool(
-            self.client, "create_leave_request",
+        data = await self._call(
+            "create_leave_request",
             employee_id=self.employee_id, leave_type=draft["leave_type"],
             start_date=draft["start_date"], end_date=draft["end_date"],
             reason="შექმნილია HR ასისტენტით, თანამშრომლის დადასტურებით",
