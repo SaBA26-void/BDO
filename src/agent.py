@@ -64,6 +64,7 @@ CREATE_KEYWORDS = [
     "შვებულების აღება", "შვებულებაში გასვლა", "გავალ შვებულებაში", "მჭირდება შვებულება",
 ]
 WANT_WORDS = ["მინდა", "მჭირდება"]
+QUESTION_WORDS = {"რამდენი", "როგორ", "როდის", "რა", "სად", "ვის", "რატომ", "რომელი", "შეიძლება"}
 
 CONFIRM_WORDS = {"კი", "დიახ"}
 DECLINE_WORDS = {"არა", "არ მინდა", "გაუქმება", "გააუქმე"}
@@ -151,6 +152,10 @@ class GeorgianAIAssistant:
 
         if any(w in msg for w in BALANCE_KEYWORDS):
             return "CHECK_BALANCE"
+
+        # "რამდენი დღით ადრე უნდა მოვითხოვო?" asks about the rules; a request names its dates.
+        if not DATE_PATTERN.search(msg) and ("?" in msg or msg.split(" ", 1)[0] in QUESTION_WORDS):
+            return "POLICY_QA"
 
         if (
             any(w in msg for w in CREATE_KEYWORDS)
