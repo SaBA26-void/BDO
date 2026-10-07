@@ -203,7 +203,9 @@ class GeorgianAIAssistant:
 
         answer = rag_res["answer"]
         if rag_res["found"] and "წყარო" not in answer and rag_res["sources"]:
-            answer += f"\n\n[წყარო: {rag_res['sources'][0]['source_file']}]"
+            top = rag_res["sources"][0]
+            label = f"{top['source_file']}, {top['section']}" if top["section"] else top["source_file"]
+            answer += f"\n\n[წყარო: {label}]"
         return answer, rag_res
 
     async def _handle_balance(self) -> Tuple[str, Dict[str, Any]]:
