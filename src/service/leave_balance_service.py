@@ -1,3 +1,4 @@
+from datetime import date
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -8,11 +9,13 @@ from src.service.session import with_session
 @with_session
 def get_leave_balance(
     employee_id: str,
-    year: int = 2026,
+    year: Optional[int] = None,
     leave_type_id: Optional[str] = None,
     session: Optional[Session] = None
 ) -> List[Dict[str, Any]]:
-    """View remaining leave balances for an employee, looked up by exact ID."""
+    """View remaining leave balances for an employee, looked up by exact ID. Defaults to this year."""
+    if year is None:
+        year = date.today().year
     query = select(LeaveEntitlement).where(
         LeaveEntitlement.employee_id == employee_id,
         LeaveEntitlement.year == year

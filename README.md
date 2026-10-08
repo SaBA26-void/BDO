@@ -16,9 +16,12 @@ mcp_server/main.py    MCP სერვერის გაშვება (stdio)
 mcp_server/tools.py   MCP ხელსაწყოები
 src/database.py       SQLAlchemy მოდელები (data/leave_system.db)
 src/seed.py           ბაზის შევსება Excel ფაილებიდან
-src/service/          ბიზნეს-ლოგიკა: პოლიტიკის წესები, ბალანსი, უფლებამოსილება (access.py)
-src/rag.py            დოკუმენტების დამუშავება, მუხლებად დაყოფა, ძიება და პასუხის გენერაცია
-src/agent.py          განზრახვის ამოცნობა და მარშრუტიზაცია (RAG / MCP)
+src/service/          ბიზნეს-ლოგიკა: leave_policy.py (მუხლობრივი შემოწმებები), leave_service.py (CRUD),
+                      ბალანსი, უფლებამოსილება (access.py)
+src/rag/              chunking.py (მუხლებად დაყოფა), loader.py (DOCX/PDF წაკითხვა, პრიორიტეტები),
+                      retriever.py (embedding-ები, ქეში, ძიება), engine.py (პრომპტი, პასუხი)
+src/assistant/        keywords.py (ქართული საკვანძო სიტყვები), intents.py (განზრახვა, სახე, თარიღები),
+                      messages.py (პასუხების ტექსტები), agent.py (მარშრუტიზაცია RAG / MCP)
 src/cli.py            ინტერაქტიული CLI
 tests/                pytest ტესტები
 ```
@@ -135,7 +138,7 @@ HR დეპარტამენტის (`HRS`) თანამშრომ�
 
 ## ასისტენტის ლოგიკა
 
-`src/agent.py` ყოველ შეტყობინებას ერთ-ერთ განზრახვად აკლასიფიცირებს:
+`src/assistant/intents.py` ყოველ შეტყობინებას ერთ-ერთ განზრახვად აკლასიფიცირებს, `agent.py` კი ამარშრუტებს:
 
 - `CHECK_BALANCE` — „ბალანსი“, „დამრჩა“ და მსგავსი → `get_leave_balance`;
 - `CREATE_LEAVE_REQUEST` — მოთხოვნის გამომხატველი ფრაზა ან „შვებულება“ + თარიღი → სახის ამოცნობა
