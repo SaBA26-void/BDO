@@ -13,7 +13,7 @@ sys.path.insert(0, ROOT)
 from fastmcp import Client
 
 import mcp_server.tools  # noqa: F401  (registers the tools on `mcp`)
-import src.agent as agent_module
+import src.assistant.agent as agent_module
 import src.service.leave_service as leave_service
 import src.service.session as session_module
 from mcp_server.app import mcp

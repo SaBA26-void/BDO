@@ -15,7 +15,8 @@ sys.path.insert(0, ROOT)
 from fastmcp import Client
 from fastmcp.client.transports import PythonStdioTransport
 
-from src.agent import GeorgianAIAssistant
+from src.assistant import GeorgianAIAssistant
+from src.assistant import messages
 
 SERVER_SCRIPT = os.path.join(ROOT, "mcp_server", "main.py")
 SERVER_LOG = Path(ROOT) / "data" / "mcp_server.log"
@@ -38,12 +39,7 @@ async def main() -> int:
             print(f"❌ თანამშრომელი '{raw_id}' ვერ მოიძებნა. სესია დასრულდა.")
             return 1
 
-        print(
-            f"\nგამარჯობა, {assistant.employee_name} ({assistant.employee_id})!\n"
-            "შემიძლია ვუპასუხო პოლიტიკის კითხვებს, გაჩვენოთ თქვენი შვებულების ბალანსი და შევქმნა "
-            "ყოველწლიური, ავადმყოფობის ან უხელფასო შვებულების მოთხოვნა.\n"
-            "გასასვლელად დაწერეთ „გასვლა“."
-        )
+        print(messages.welcome(assistant.employee_name, assistant.employee_id))
 
         while True:
             try:

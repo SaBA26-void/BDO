@@ -15,7 +15,8 @@ def get_leave_types(session: Optional[Session] = None) -> List[Dict[str, Any]]:
             "name": lt.name,
             "day_unit": lt.day_unit,
             "annual_limit_days": lt.annual_limit_days,
-            "self_service": lt.self_service
+            "self_service": lt.self_service,
+            "assistant_supported": bool(lt.assistant_supported),
         }
         for lt in types
     ]

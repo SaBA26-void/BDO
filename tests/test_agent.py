@@ -4,7 +4,8 @@ import pytest
 from fastmcp import Client
 
 from mcp_server.app import mcp
-from src.agent import GeorgianAIAssistant, resolve_employee_alias
+from src.assistant import GeorgianAIAssistant
+from src.assistant.intents import classify_intent, extract_dates, extract_leave_type, resolve_employee_alias
 
 
 @pytest.mark.parametrize("message, intent", [
@@ -18,7 +19,7 @@ from src.agent import GeorgianAIAssistant, resolve_employee_alias
     ("რა არის სასტუმროს ლიმიტი მივლინებისას?", "POLICY_QA"),
 ])
 def test_classify_intent(message, intent):
-    assert GeorgianAIAssistant.classify_intent(message) == intent
+    assert classify_intent(message) == intent
 
 
 @pytest.mark.parametrize("message, leave_type", [
@@ -31,13 +32,13 @@ def test_classify_intent(message, intent):
     ("მინდა შვებულება", None),
 ])
 def test_extract_leave_type(message, leave_type):
-    assert GeorgianAIAssistant.extract_leave_type(message) == leave_type
+    assert extract_leave_type(message) == leave_type
 
 
 def test_extract_dates_orders_range_and_accepts_single_day():
-    assert GeorgianAIAssistant.extract_dates("2026-11-06-მდე, 2026-11-02-დან") == ("2026-11-02", "2026-11-06")
-    assert GeorgianAIAssistant.extract_dates("მხოლოდ 2026-11-02") == ("2026-11-02", "2026-11-02")
-    assert GeorgianAIAssistant.extract_dates("2026-13-40") == (None, None)
+    assert extract_dates("2026-11-06-მდე, 2026-11-02-დან") == ("2026-11-02", "2026-11-06")
+    assert extract_dates("მხოლოდ 2026-11-02") == ("2026-11-02", "2026-11-02")
+    assert extract_dates("2026-13-40") == (None, None)
 
 
 @pytest.mark.parametrize("raw, expected", [("e1001", "E1001"), ("EMP001", "E1001"), (" emp7 ", "E1007")])
