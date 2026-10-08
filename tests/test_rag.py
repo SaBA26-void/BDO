@@ -4,8 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import src.rag as rag
+import src.rag.retriever as retriever
 from src.rag import NOT_FOUND_ANSWER, PolicyDocumentLoader, PolicyRAGEngine, build_sections, heading_number
+from src.rag.chunking import CHUNK_SIZE
 
 DOC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "documents")
 
@@ -78,7 +79,7 @@ def test_faq_questions_are_labelled(chunks):
 
 
 def test_chunks_stay_near_chunk_size(chunks):
-    assert max(len(c.text) for c in chunks) < rag.CHUNK_SIZE + 300
+    assert max(len(c.text) for c in chunks) < CHUNK_SIZE + 300
 
 
 class FakeClient:
@@ -102,7 +103,7 @@ class FakeClient:
 
 @pytest.fixture
 def isolated_cache(tmp_path, monkeypatch):
-    monkeypatch.setattr(rag, "EMBEDDING_CACHE_FILE", str(tmp_path / "embeddings.json"))
+    monkeypatch.setattr(retriever, "EMBEDDING_CACHE_FILE", str(tmp_path / "embeddings.json"))
 
 
 def test_context_and_prompt_carry_article_numbers(isolated_cache):
